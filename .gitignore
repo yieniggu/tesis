@@ -6,6 +6,7 @@ test/raw/video*/*.xml
 *.jpg
 *.jpeg
 videos/
+models/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
