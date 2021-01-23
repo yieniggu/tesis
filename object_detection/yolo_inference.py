@@ -4,7 +4,9 @@ import numpy as np
 from tensorflow.python.compiler.tensorrt import trt_convert as trt
 from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.saved_model import tag_constants
+from results_utils import BboxResults, YoloPerformanceResults
 
+import glob, re
 import time
 import image_utils as imgutils
 
@@ -79,8 +81,8 @@ class YoloInferator():
                             .format(gpu_mem_cap))
             except RuntimeError as e:
                 print('[GPU-CONFIG] Can not set GPU memory config', e)
-    
-    def load_model_details(self, labels_path, is_tiny, input_size):
+
+    def load_model_details(self, labels_path, is_tiny, model_dir):
         print("[MODEL] Loading model details...")
         details_start = time.time()
         strides, anchors, num_class, xyscale = utils.load_config(labels_path, is_tiny)
@@ -88,13 +90,30 @@ class YoloInferator():
         self.attributes['ANCHORS'] = anchors
         self.attributes['NUM_CLASS'] = num_class
         self.attributes['XYSCALE'] = xyscale
-        self.attributes['INPUT_SIZE'] = input_size
         self.attributes['LABELS'] = utils.read_class_names(labels_path)
+
+        details_path = model_dir + 'details.txt'
+        with open(details_path, 'r') as f:
+            for line in f.readlines():
+                splitted = line.split('=')
+                key = splitted[0]
+                value = splitted[1]
+
+                if value[-1] == "\n":
+                    #print("[MODEL] Repairing key {} with value {}".format(key, value))
+                    value = value[0:-1]
+
+                print("[MODEL] Adding key {} with value {} to attributes"
+                    .format(key, value))
+                self.attributes[key] = value
+                #print("[MODEL] Key loaded? {}".format(self.attributes[key]))
 
         print("[MODEL] Model details loaded, it took {} ms"
                 .format((time.time()-details_start)*1000))
 
-    def run_inference(self, image_path=None, warmup_iters=0, threshold=0.5, iou=0.45, image=None, model_dir=None):   
+    def run_inference(self, image_path=None, warmup_iters=0, threshold=0.5, iou=0.45, model_dir=None, bbox_results=None, performance_results=None, opencv=False, resize=False):   
+        input_size = int(self.attributes["INPUT_SIZE"])
+        labels = self.attributes["LABELS"]
         # get a copy of the graph func
         #graph_func = self.attributes["graph_func"]
         if model_dir is not None:
@@ -115,60 +134,163 @@ class YoloInferator():
                 print("[INFERENCE] Generating image {} with dims {}x{}"
                     .format(i+1, input_size, input_size))
 
-                # create random image
-                image = np.random.randint(low = 0, high = 255, 
-                        size = (input_size, input_size, 3)).astype('uint8')
-                
-                # preprocess image to work on tf
-                print("[INFERENCE] Converting warmup image to tf constant as batch data...")
-                image_to_tensor_start = time.time()
-                image_data = self.preprocess_image(image, self.attributes['INPUT_SIZE'])
-                # Convert the input to a tf constant to perform inference.
-                batch_data = tf.constant(image_data)
-                
-                print("[INFERENCE] Conversion took {} ms"
-                    .format((time.time()-image_to_tensor_start)*1000))
+                # working with numpy/cv backend
+                if opencv:
+                    # create random image
+                    resized_image = np.random.normal(size=(input_size, input_size, 3)).astype(np.float32)/255.
 
+                    # conventional conversion (use with opencv option)
+                    # The input needs to be a tensor, convert it using `tf.convert_to_tensor`.
+                    #input_tensor = tf.convert_to_tensor(resized_image)
+                    #input_tensor = tf.convert_to_tensor(image)
+                    # The model expects a batch of images, so add an axis with `tf.newaxis`.
+                    #input_tensor = input_tensor[tf.newaxis, ...]
+
+                    images_data = np.asarray([resized_image]).astype(np.float32)
+
+                    input_tensor = tf.constant(images_data)
+
+                # working with tf backend for image
+                else:
+                    dataset, _, _ = imgutils.get_dataset_tf(tensor_type='float', input_size=input_size)
+                    """print("[WARMUP] Creating features...")
+                    features = np.random.normal(loc=112, scale=70,
+                            size=(1, input_size, input_size, 3)).astype(np.float32)
+                    features = np.clip(features, 0.0, 255.0).astype(np.float32)
+                    features = tf.convert_to_tensor(value=tf.compat.v1.get_variable(
+                                        "features", initializer=tf.constant(features)))
+                    print("[WARMUP] Creating dataset from features...")
+                    dataset = tf.data.Dataset.from_tensor_slices([features])
+                    dataset = dataset.repeat(count=1)"""
+                    
+                    print("[WARMUP] Retrieving image and input tensor...")
+                    dataset_enum = enumerate(dataset)
+                    # get input tensor and cast to image (np)
+                    input_tensor = list(dataset_enum)[0][1]
+                    resized_image = input_tensor.numpy()[0]
+
+                    images_data = np.asarray([resized_image]).astype(np.float32)
+                    input_tensor = tf.constant(images_data)
+
+
+                #print("[WARMUP] Input tensor: {} - dtype {}"
+                #    .format(input_tensor, input_tensor.dtype))
+                
                 # get the detections
-                print("[INFERENCE] Now performing warmup inference...")
+                print("[WARMUP] Now performing warmup inference...")
                 inference_start_time = time.time()
-                pred_bbox = saved_model_loaded(batch_data)
-                print("[INFERENCE] Warmup inference took {} ms"
-                    .format((time.time()-inference_start_time)*1000))
+                detections = saved_model_loaded(input_tensor)
+                print("[WARMUP] Warmup inference took {} ms"
+                        .format((time.time()-inference_start_time)*1000))
+
+                print("[INFERENCE] Preprocessing network outputs...")
+                start_output = time.time()
+                # extract output tensors metadata: boxes, confidence scores
+                print("[INFERENCE] Extracting output tensors metadata...")
+                keyval_start = time.time()
+                for key, value in detections.items():
+                    #print("[INFERENCE-DEBUG] key {}: value {}".format(key, value))
+                    boxes = value[:, :, 0:4]
+                    pred_conf = value[:, :, 4:]
+                    #print("[INFERENCE-DEBUG] boxes ", boxes, type(boxes))
+                    #print("[INFERENCE-DEBUG] confidence ", pred_conf, type(pred_conf))
+
+                print("[INFERENCE] Done extracting metadata, it took {}"
+                        .format((time.time()-keyval_start)*1000))
+
+                print("[INFERENCE] Performing NMS to output...")
+                nms_start = time.time()
+                # perform non-max supression to retrieve valid detections only
+                boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
+                    boxes=tf.reshape(boxes, (tf.shape(boxes)[0], -1, 1, 4)),
+                    scores=tf.reshape(
+                        pred_conf, (tf.shape(pred_conf)[0], -1, tf.shape(pred_conf)[-1])),
+                    max_output_size_per_class=50,
+                    max_total_size=50,
+                    iou_threshold=iou,
+                    score_threshold=threshold
+                )
+
+                results = [boxes.numpy(), scores.numpy(), classes.numpy(), valid_detections.numpy()]
+                print("[INFERENCE] NMS done, it took {} ms"
+                        .format((time.time()-nms_start)*1000))
+                total_output = (time.time()-start_output)*1000
+                print("[INFERENCE] Done procesing output!, it took {}ms".format(total_output))
             
-            # display results in ms
-            print("[INFERENCE] Warmup finished, it took {} seconds"
-                    .format(time.time()-warmup_start))
+                _ = imgutils.draw_yolo_bounding_boxes(resized_image, results, labels)
+                                # display results in ms
+            print("[WARMUP] Warmup finished, it took {} ms"
+                    .format((time.time()-warmup_start)*1000))
 
-        # actual inference
-        print("[INFERENCE] Loading image...")
-        # Load image
-        if image_path is not None:
-            image = imgutils.load_image_as_np(image_path, "CV2")
+        # case inference
+        if opencv:
+            print("[INFERENCE] Loading image with opencv backend...")
+            # opencv option
+            image, total_image_loading = imgutils.load_image_as_np(image_path, "CV2")
 
-        image_data = self.preprocess_image(image, self.attributes['INPUT_SIZE'])
-        
-        # preprocess image to work on tf
-        print("[INFERENCE] Converting image to tf constant as batch data...")
-        image_to_tensor_start = time.time()
-        # Convert the input to a tf constant to perform inference.
-        batch_data = tf.constant(image_data)
-        
-        print("[INFERENCE] Conversion took {} ms"
-            .format((time.time()-image_to_tensor_start)*1000))
+            image = image.astype(np.float32)
 
+            # preprocess image to work on tf
+            print("[INFERENCE] Preprocessing image...")
+            start_preprocessing = time.time()
+
+            # resize image to netwrk input dimensions
+            resized_image = imgutils.resize_image(image, (input_size, input_size))/255.
+            
+            # conventional conversion (use with opencv option)
+            # The input needs to be a tensor, convert it using `tf.convert_to_tensor`.
+            #input_tensor = tf.convert_to_tensor(resized_image)
+            #input_tensor = tf.convert_to_tensor(image)
+            # The model expects a batch of images, so add an axis with `tf.newaxis`.
+            #input_tensor = input_tensor[tf.newaxis, ...]
+
+            images_data = np.asarray([resized_image]).astype(np.float32)
+            input_tensor = tf.constant(images_data)
+
+            total_preprocessing = (time.time()-start_preprocessing)*1000
+            print("[INFERENCE] Preprocessing done!, it took {}ms"
+                .format(total_preprocessing))
+            
+
+        # case tf backend to manipulate images
+        else:
+            print("[INFERENCE] Loading image with tf backend...")
+            # dataset option, yolo models require resizing to input size
+            dataset, total_image_loading, total_preprocessing = imgutils.get_dataset_tf(image_path=image_path, 
+                                                                                        input_size=input_size,
+                                                                                        tensor_type='float')
+            #print("[INFERENCE] dataset {}".format(dataset))
+            # take the batched image
+            dataset_enum = enumerate(dataset)
+            input_tensor = list(dataset_enum)[0][1]
+            
+            # take image as np and convert to rgb
+            image_bgr = input_tensor.numpy()[0]
+            resized_image = image_bgr[...,::-1].copy()/255.
+            
+            images_data = np.asarray([resized_image]).astype(np.float32)
+            input_tensor = tf.constant(images_data)
+
+            print("[INFERENCE] Now performing inference...")
+            inference_start_time = time.time()
+
+
+        #print("[INFERENCE] Input tensor: {} - dtype {}"
+        #    .format(input_tensor, input_tensor.dtype))
+            
         # get the detections
-        print("[INFERENCE] Now performing inference...")
-        inference_start_time = time.time()
-        pred_bbox = saved_model_loaded(batch_data)
-        print("[INFERENCE] Inference took {} ms"
-            .format((time.time()-inference_start_time)*1000))
-        #print("[INFERENCE-DEBUG] Output tensor ", pred_bbox, type(pred_bbox))
+        detections = saved_model_loaded(input_tensor)
 
+        total_inference = (time.time()-inference_start_time)*1000
+        print("[INFERENCE] Inference took {} ms"
+            .format(total_inference))
+
+        print("[INFERENCE] Preprocessing network outputs...")
+        start_output = time.time()
         # extract output tensors metadata: boxes, confidence scores
         print("[INFERENCE] Extracting output tensors metadata...")
         keyval_start = time.time()
-        for key, value in pred_bbox.items():
+        for key, value in detections.items():
             #print("[INFERENCE-DEBUG] key {}: value {}".format(key, value))
             boxes = value[:, :, 0:4]
             pred_conf = value[:, :, 4:]
@@ -194,33 +316,292 @@ class YoloInferator():
         results = [boxes.numpy(), scores.numpy(), classes.numpy(), valid_detections.numpy()]
         print("[INFERENCE] NMS done, it took {} ms"
                 .format((time.time()-nms_start)*1000))
-        
+        total_output = (time.time()-start_output)*1000
+        print("[INFERENCE] Done procesing output!, it took {}ms".format(total_output))
+
+        # TODO: ADD tracker updating 
+
+        # draw results on image
+        if (bbox_results is not None) and (performance_results is not None):
+            drawing_time = imgutils.draw_yolo_bounding_boxes(resized_image, results, labels,
+                                                                bbox_results=bbox_results)
+            
+            height, width, _ = image.shape
+            # add new performance results to object
+            performance_results.add_new_result(width, height, total_image_loading, 
+                                            total_preprocessing, total_inference, 
+                                            total_output, drawing_time)
+        else:
+            _ = imgutils.draw_yolo_bounding_boxes(resized_image, results, labels, save=True)
+    
         # debugging info
         """print("[INFERENCE-DEBUG] tf-boxes ", boxes, type(boxes))
         print("[INFERENCE-DEBUG] tf-scores", scores, type(scores))
         print("[INFERENCE-DEBUG] tf-classes", classes, type(classes))
         print("[INFERENCE-DEBUG] tf-valid-detections", valid_detections, type(valid_detections))
-        """
+        
         print("[INFERENCE-DEBUG] nmsed-boxes ", results[0])
         print("[INFERENCE-DEBUG] nmsed-scores ", results[1])
         print("[INFERENCE-DEBUG] nmsed-classes ", results[2])
-        print("[INFERENCE-DEBUG] nmsed-valid-detections ", results[3])
+        print("[INFERENCE-DEBUG] nmsed-valid-detections ", results[3])"""
 
- 
-        imgutils.draw_yolo_bounding_boxes(image=image, results=results, labels=self.attributes['LABELS'])
+    def run_inference_on_images(self, images_path, warmup_iters=0, model_dir=None, labels=None, threshold=0.3, iou=0.45, opencv=False):
+        input_size = int(self.attributes["INPUT_SIZE"])
+        labels = self.attributes["LABELS"]
 
-    def preprocess_image(self, image, input_size):
-        print("[INFERENCE] Preprocessing image (normalization and resizing)...")
-        preprocess_start = time.time()
+        # get a copy of the graph func
+        #graph_func = self.attributes["graph_func"]
+        if model_dir is not None:
+            saved_model_loaded = self.get_func_from_saved_model(model_dir)
+        else: 
+            saved_model_loaded = self.attributes["saved_model_loaded"]
 
-        processed_image = cv2.resize(image, (input_size, input_size))
-        processed_image = processed_image/255
-        processed_image = processed_image[np.newaxis, ...].astype(np.float32)
+        #warmup
+        if warmup_iters > 0:
+            print("[INFERENCE] Starting warmup on {} iterations..."
+                    .format(warmup_iters))
+            warmup_start = time.time()
+            # get input size from model attributes
+            input_size = int(self.attributes["INPUT_SIZE"])
+    
+            # create a set of random images and perform inference
+            for i in range(warmup_iters):
+                print("[INFERENCE] Generating image {} with dims {}x{}"
+                    .format(i+1, input_size, input_size))
 
-        print("[INFERENCE] Image preprocessed, it took {} ms"
-                .format((time.time()-preprocess_start)*1000))
+                # working with numpy/cv backend
+                if opencv:
+                    # create random image
+                    image = np.random.normal(size=(input_size, input_size, 3)).astype(np.float32)/255.
+                    # conventional conversion (use with opencv option)
+                    # The input needs to be a tensor, convert it using `tf.convert_to_tensor`.
+                    # resize image to netwrk input dimensions
+                    resized_image = imgutils.resize_image(image, (input_size, input_size))/255.
 
-        return processed_image
+                    images_data = np.asarray([resized_image]).astype(np.float32)
+
+                    input_tensor = tf.constant(images_data)
+
+                # working with tf backend for image
+                else:
+                    dataset, _, _ = imgutils.get_dataset_tf(tensor_type='float', input_size=input_size)
+                    
+                    print("[WARMUP] Retrieving image and input tensor...")
+                    dataset_enum = enumerate(dataset)
+                    # get input tensor and cast to image (np)
+                    input_tensor = list(dataset_enum)[0][1]
+                    
+                    # take image as np and convert to rgb
+                    image_bgr = input_tensor.numpy()[0]
+                    resized_image = image_bgr[...,::-1].copy()/255.
+
+                    images_data = np.asarray([resized_image]).astype(np.float32)
+
+                    input_tensor = tf.constant(images_data)
+                # get the detections
+                print("[WARMUP] Now performing warmup inference...")
+                inference_start_time = time.time()
+                detections = saved_model_loaded(input_tensor)
+                print("[WARMUP] Warmup inference took {} ms"
+                        .format((time.time()-inference_start_time)*1000))
+
+                print("[INFERENCE] Preprocessing network outputs...")
+                start_output = time.time()
+                # extract output tensors metadata: boxes, confidence scores
+                print("[INFERENCE] Extracting output tensors metadata...")
+                keyval_start = time.time()
+                for key, value in detections.items():
+                    #print("[INFERENCE-DEBUG] key {}: value {}".format(key, value))
+                    boxes = value[:, :, 0:4]
+                    pred_conf = value[:, :, 4:]
+                    #print("[INFERENCE-DEBUG] boxes ", boxes, type(boxes))
+                    #print("[INFERENCE-DEBUG] confidence ", pred_conf, type(pred_conf))
+
+                print("[INFERENCE] Done extracting metadata, it took {}"
+                        .format((time.time()-keyval_start)*1000))
+
+                print("[INFERENCE] Performing NMS to output...")
+                nms_start = time.time()
+                # perform non-max supression to retrieve valid detections only
+                boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
+                    boxes=tf.reshape(boxes, (tf.shape(boxes)[0], -1, 1, 4)),
+                    scores=tf.reshape(
+                        pred_conf, (tf.shape(pred_conf)[0], -1, tf.shape(pred_conf)[-1])),
+                    max_output_size_per_class=50,
+                    max_total_size=50,
+                    iou_threshold=iou,
+                    score_threshold=threshold
+                )
+
+                results = [boxes.numpy(), scores.numpy(), classes.numpy(), valid_detections.numpy()]
+                print("[INFERENCE] NMS done, it took {} ms"
+                        .format((time.time()-nms_start)*1000))
+                total_output = (time.time()-start_output)*1000
+                print("[INFERENCE] Done procesing output!, it took {}ms".format(total_output))
+            
+                _ = imgutils.draw_yolo_bounding_boxes(resized_image, results, labels)
+                                # display results in ms
+            print("[WARMUP] Warmup finished, it took {} ms"
+                    .format((time.time()-warmup_start)*1000))
+
+        # define frame count and a helper function to read
+        # the images sorted by numerical index
+        frame_count = 1
+        numbers = re.compile(r'(\d+)')
+        def numericalSort(value):
+            parts = numbers.split(value)
+            parts[1::2] = map(int, parts[1::2])
+            return parts
+        
+        # read image sorted by numerical order
+        image_paths = sorted(glob.glob(images_path + "*.png"), key=numericalSort)
+        print("[INFERENCE] Found {} images in {} ...".format(len(image_paths), images_path))
+
+        #create a class to store results
+        bbox_results = BboxResults()
+        performance_results = YoloPerformanceResults()
+
+        # Iterate over all images, perform inference and update 
+        # results dataframe
+        for image_path in image_paths:
+            print("[INFERENCE] Processing frame/image {} from {}".format(frame_count, image_path))
+            image_filename = image_path.split('/')[-1]
+
+            # init metadata
+            bbox_results.init_frame_metadata(image_filename, frame_count)
+            performance_results.init_frame_metadata(image_filename, frame_count)
+
+            # case inference
+            if opencv:
+                print("[INFERENCE] Loading image with opencv backend...")
+                # opencv option
+                image, total_image_loading = imgutils.load_image_as_np(image_path, "CV2")
+
+                image = image.astype(np.float32)
+
+                # preprocess image to work on tf
+                print("[INFERENCE] Preprocessing image...")
+                start_preprocessing = time.time()
+
+                # resize image to netwrk input dimensions
+                resized_image = imgutils.resize_image(image, (input_size, input_size))/255.
+
+                images_data = np.asarray([resized_image]).astype(np.float32)
+
+                input_tensor = tf.constant(images_data)
+
+                total_preprocessing = (time.time()-start_preprocessing)*1000
+                print("[INFERENCE] Preprocessing done!, it took {}ms"
+                    .format(total_preprocessing))
+                
+
+            # case tf backend to manipulate images
+            else:
+                print("[INFERENCE] Loading image with tf backend...")
+                # dataset option, yolo models require resizing to input size
+                dataset, total_image_loading, total_preprocessing = imgutils.get_dataset_tf(image_path=image_path, 
+                                                                                            input_size=input_size,
+                                                                                            tensor_type='float')
+                #print("[INFERENCE] dataset {}".format(dataset))
+                # take the batched image
+                dataset_enum = enumerate(dataset)
+
+                local_preprocessing_start = time.time()
+                input_tensor = list(dataset_enum)[0][1]
+                # take image as np and convert to rgb
+                image_bgr = input_tensor.numpy()[0]
+                resized_image = image_bgr[...,::-1].copy()/255.
+
+                images_data = np.asarray([resized_image]).astype(np.float32)
+
+                input_tensor = tf.constant(images_data)
+                total_local_preprocessing = (time.time()-local_preprocessing_start)*1000
+
+                total_preprocessing += total_local_preprocessing
+
+            print("[INFERENCE] Now performing inference...")
+            inference_start_time = time.time()
+            #print("[INFERENCE] Input tensor: {} - dtype {}"
+            #    .format(input_tensor, input_tensor.dtype))
+                
+            # get the detections
+            detections = saved_model_loaded(input_tensor)
+
+            total_inference = (time.time()-inference_start_time)*1000
+            print("[INFERENCE] Inference took {} ms"
+                .format(total_inference))
+
+            print("[INFERENCE] Preprocessing network outputs...")
+            start_output = time.time()
+            # extract output tensors metadata: boxes, confidence scores
+            print("[INFERENCE] Extracting output tensors metadata...")
+            keyval_start = time.time()
+            for key, value in detections.items():
+                #print("[INFERENCE-DEBUG] key {}: value {}".format(key, value))
+                boxes = value[:, :, 0:4]
+                pred_conf = value[:, :, 4:]
+                #print("[INFERENCE-DEBUG] boxes ", boxes, type(boxes))
+                #print("[INFERENCE-DEBUG] confidence ", pred_conf, type(pred_conf))
+
+            print("[INFERENCE] Done extracting metadata, it took {}"
+                    .format((time.time()-keyval_start)*1000))
+
+            print("[INFERENCE] Performing NMS to output...")
+            nms_start = time.time()
+            # perform non-max supression to retrieve valid detections only
+            boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
+                boxes=tf.reshape(boxes, (tf.shape(boxes)[0], -1, 1, 4)),
+                scores=tf.reshape(
+                    pred_conf, (tf.shape(pred_conf)[0], -1, tf.shape(pred_conf)[-1])),
+                max_output_size_per_class=50,
+                max_total_size=50,
+                iou_threshold=iou,
+                score_threshold=threshold
+            )
+
+            results = [boxes.numpy(), scores.numpy(), classes.numpy(), valid_detections.numpy()]
+            print("[INFERENCE] NMS done, it took {} ms"
+                    .format((time.time()-nms_start)*1000))
+            total_output = (time.time()-start_output)*1000
+            print("[INFERENCE] Done procesing output!, it took {}ms".format(total_output))
+
+            # TODO: ADD tracker updating 
+
+            # draw results on image
+            if (bbox_results is not None) and (performance_results is not None):
+                drawing_time = imgutils.draw_yolo_bounding_boxes(resized_image, results, labels,
+                                                                    bbox_results=bbox_results)
+                
+                height, width, _ = image.shape
+                # add new performance results to object
+                performance_results.add_new_result(width, height, total_image_loading, 
+                                                total_preprocessing, total_inference, 
+                                                total_output, drawing_time)
+            else:
+                _ = imgutils.draw_yolo_bounding_boxes(resized_image, results, labels, save=True)
+
+            print("[INFERENCE] Image/frame {} processed".format(frame_count))
+            frame_count += 1
+
+        print("[INFERENCE] All frames procesed!")
+
+        output_path = "{}results/{}".format(images_path, self.attributes["MODEL_NAME"])
+        if opencv:
+            output_path += "/opencv-backend"
+        else:
+            output_path += "/tf-backend"
+        
+        model_name = self.attributes["MODEL_NAME"]
+        precision = self.attributes["precision"]
+        
+        # save results obtained from performance and detections to output
+        bbox_results.save_results(output_path, model_name, precision, 
+                                threshold, resize=True, opencv=opencv)
+        performance_results.save_results(output_path, model_name, precision, 
+                                threshold, resize=True, opencv=opencv)
+
+            
+
 
 
 
