@@ -105,7 +105,7 @@ class BboxResults:
 
 
         results_df = pd.DataFrame(self.results, 
-                                columns=["image_path", "frame", "width", "height", "detection_class",
+                                columns=["filename", "frame", "width", "height", "detection_class",
                                         "detection_score", "xmin", "xmax",
                                         "ymin", "ymax"])
 
@@ -188,7 +188,7 @@ class PerformanceResults:
             save_output += "_tf"
 
         results_df = pd.DataFrame(self.results, 
-                                columns=["image_path", "frame", "width", "height", "image_loading_time",
+                                columns=["filename", "frame", "width", "height", "image_loading_time",
                                         "preprocessing_time", "inference_time", "drawing_time"])
 
         print("[PERFORMANCE-RESULTS] Saving performance results to {}".format(save_output))
@@ -279,13 +279,13 @@ class SortResults:
 
         if output_path[-1] != '/':
             output_path+= '/'
-        output_path += "tracker_results/"
+        output_path += "tracker_results/tracking/"
 
         create_dir(output_path)
 
         output_path += "{}_{}_{}_sort-tracking_results_{}_{}".format(model_name, precision, threshold, frame_dims, loading_backend)
 
-        results_df = pd.DataFrame(self.results, columns=["image_path", "frame_count", "width", "height",
+        results_df = pd.DataFrame(self.results, columns=["filename", "frame_count", "width", "height",
                                                     "tracker_id", "tracker_state", 
                                                     "time_since_update", "init_in_roi", 
                                                     "first_centroid_x", "first_centroid_y",
@@ -376,13 +376,13 @@ class SortPerformanceResults:
         if output_path[-1] != '/':
             output_path+= '/'
         
-        output_path += "tracker_results/"
+        output_path += "tracker_results/performance/"
 
         create_dir(output_path)
 
         output_path += "{}_{}_{}_sort-performance_results_{}_{}".format(model_name, precision, threshold, frame_dims, loading_backend)
 
-        results_df = pd.DataFrame(self.results, columns=["image_path", "frame_count", "width", "height",
+        results_df = pd.DataFrame(self.results, columns=["filename", "frame_count", "width", "height",
                                                     "image_loading_time", "preprocessing_time",
                                                     "preparing_time", "update_time", "results_time",
                                                     "update_state_time", "total_trackers"])
@@ -392,3 +392,89 @@ class SortPerformanceResults:
         results_df.to_csv(output_path + ".csv", index=False)
         print("[SORT-PERFORMANCE] Results saved!")
         
+class YoloPerformanceResults:
+    def __init__(self, results=[], temp=[]):
+        print("[YOLO-PERFORMANCE-RESULTS] Initializing class with values " +
+            "{} for results and {} for temp".format(results, temp))
+        self.results = results
+        self.temp = temp
+        self.class_message = "yolo-performance-results"
+        self.current_frame = None
+        self.current_image_path = None
+
+
+    def init_frame_metadata(self, image_path, frame_count):
+        self.image_path = image_path
+        self.current_frame = frame_count
+
+    def add_image_path(self):
+        add_element(self.temp, self.image_path, "image", self.class_message)
+    
+    def add_frame_count(self):
+        add_element(self.temp, self.current_frame, "frame", self.class_message)
+
+    def add_width(self, width):
+        add_element(self.temp, width, "width", self.class_message)
+
+    def add_height(self, height):
+        add_element(self.temp, height, "height", self.class_message)
+
+    def add_inference_time(self, inference_time):
+        add_element(self.temp, inference_time, "inference time", self.class_message)
+    
+    def add_drawing_time(self, drawing_time):
+        add_element(self.temp, drawing_time, "drawing time", self.class_message)
+
+    def add_image_loading_time(self, image_loading_time):
+        add_element(self.temp, image_loading_time, "image loading time", self.class_message)
+
+    def add_conversion_time(self, conversion_time):
+        add_element(self.temp, conversion_time, "conversion time", self.class_message)
+
+    def add_output_processing_time(self, output_processing_time):
+        add_element(self.temp, output_processing_time, "output processing time", self.class_message)
+
+    def add_new_result(self, width, height, image_loading_time, conversion_time, inference_time, output_processing_time, drawing_time):
+        self.add_image_path()
+        self.add_frame_count()
+        self.add_width(width)
+        self.add_height(height)
+        self.add_image_loading_time(image_loading_time)
+        self.add_conversion_time(conversion_time)
+        self.add_inference_time(inference_time)
+        self.add_output_processing_time(output_processing_time)
+        self.add_drawing_time(drawing_time)
+        self.reset()
+
+    def save_results(self, output_path, model_name, precision_mode, threshold, resize=False, opencv=False):
+        if output_path[-1] != "/":
+            output_path += "/"
+        
+        output_path += "performance/"
+        create_dir(output_path)
+        save_output = "{}{}_{}_{}_performance_results".format(output_path, model_name, 
+                                                            precision_mode, threshold)
+
+        if resize:
+            save_output += "_resized"
+        else:
+            save_output += "_original"
+            
+        if opencv:
+            save_output += "_opencv"
+        else:
+            save_output += "_tf"
+
+        results_df = pd.DataFrame(self.results, 
+                                columns=["filename", "frame", "width", "height", "image_loading_time",
+                                        "preprocessing_time", "inference_time", "output_processing_time",
+                                        "drawing_time"])
+
+        print("[YOLO-PERFORMANCE-RESULTS] Saving performance results to {}".format(save_output))
+        results_df.to_excel(save_output+ ".xlsx", index=False)
+        results_df.to_csv(save_output+ ".csv", index=False)
+        print("[YOLO-PERFORMANCE-RESULTS] Results saved succesfully!")
+
+    def reset(self):
+        add_results(self.temp, self.results, self.class_message)
+        self.temp = []
