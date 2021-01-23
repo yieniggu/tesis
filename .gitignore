@@ -1,12 +1,10 @@
 # folders with data
-test/tokenized/
-test/raw/video*/*.png
-test/raw/video*/*.xml
 *.png
 *.jpg
 *.jpeg
 videos/
 models/
+test/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
