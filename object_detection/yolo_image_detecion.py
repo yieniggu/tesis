@@ -6,7 +6,8 @@ from PIL import Image
 from tensorflow.python.saved_model import tag_constants
 import argparse
 import logging
-from yolo_inference import YoloInferator
+from yolo_inferencev1 import YoloInferator
+#from yolo_inferencev2 import YoloInferator
 
 if __name__ == '__main__':
     """ !Important!
@@ -43,7 +44,7 @@ if __name__ == '__main__':
                         help='Specify if use the tiny yolo model')
 
     parser.add_argument('--opencv', action='store_true',
-                        help='Specify if use opencv backend to load image')
+                        help='Specify if use opencv loading backend')                  
 
     args = parser.parse_args()
 
@@ -62,10 +63,16 @@ if __name__ == '__main__':
     # load a graph func from a saved model to perform inference
     #inferator.get_func_from_saved_model(args.model_dir)
 
-    # perform inference on given image
-    inferator.run_inference(model_dir=args.model_dir, warmup_iters=10, 
+    # perform inference on given image v1
+    inferator.run_inference(model_dir=args.model_dir, warmup_iters=0, 
                             image_path=args.image_path, threshold=args.threshold, 
                             iou=args.iou, opencv=args.opencv)     
+
+
+    # perform inference on given image v2
+    #inferator.run_inference(model_dir=args.model_dir, warmup_iters=0, 
+    #                        image_path=args.image_path, threshold=args.threshold, 
+    #                        iou=args.iou)     
 
     print("[MAIN] Detection pipeline finished."
         + "Total time elapsed: {} seconds"
