@@ -24,6 +24,8 @@ def read_image_from_cv2(image_path):
 
 	print("[IMAGEUTILS] Succesfuly loaded image into cv2 image from {}".format(image_path))
 	print("[IMAGEUTILS] Image type {}".format(type(image)))
+
+	image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 	
 	return image
 
@@ -205,7 +207,6 @@ def draw_trackers_bounding_box(frame, label, object_tracked):
 	bbox_thick = int(0.6 * (height + width) / 1000)
 	if bbox_thick < 1: bbox_thick = 1
 	fontScale = 0.75 * bbox_thick
-	bbox_color = (randint(0, 255), randint(0, 255), randint(0, 255))
 
 	# prepare label text for display
 	label_text = '[{}]: {}'.format(tracker_id, label)
@@ -230,6 +231,12 @@ def draw_trackers_bounding_box(frame, label, object_tracked):
 			(xmin, ymin), 
 			(xmax, ymax), 
 			(bbox_color), bbox_thick*2)
+
+	# Calculate centroid of bounding box
+	centroid = (object_tracked.last_centroid[0], object_tracked.last_centroid[1])    
+	
+	# Draw the centroid
+	cv2.circle(frame, centroid, 6, (0, 0, 204), -1)
 
 	print("[IMAGEUTILS] Draw finished. Drawing took {} ms"
 			.format((time.time()-draw_start)*1000))
@@ -504,6 +511,9 @@ def draw_yolo_bounding_boxes(image, results, labels, save=False, bbox_results=No
 	total_drawing = (time.time()-start_drawing)*1000
 	print("[IMAGEUTILS] Drawing pipeline finished in {} ms"
 			.format(total_drawing))
+
+	if (valid_detections == 0):
+		print("[IMAGEUTILS] THERE WAS NO DETECTIONS HERE!")
 
 	if save:
 		cv2.imwrite("yolo-results.png", image)
