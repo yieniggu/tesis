@@ -163,7 +163,7 @@ class Inferator():
 
                 # take image as np and convert to rgb
                 image_bgr = input_tensor.numpy()[0]
-                image = image_bgr[...,::-1].copy()
+                resized_image = image_bgr[...,::-1].copy()
       
         # get a copy of the graph func
         #graph_func = self.attributes["graph_func"]
@@ -184,7 +184,7 @@ class Inferator():
 
             # draw results on image
             if (bbox_results is not None) and (performance_results is not None):
-                drawing_time = imgutils.draw_bounding_boxes(image, detections, 
+                drawing_time = imgutils.draw_bounding_boxes(resized_image, detections, 
                                             labels, threshold, bbox_results=bbox_results)
                 
                 height, width, _ = image.shape
@@ -222,7 +222,7 @@ class Inferator():
                     _ = imgutils.draw_bounding_boxes(image, detections, labels, 0.05)
 
             else:
-                print("[WARMUP] Starting warmup on with tf backend on {} iterations..."
+                print("[WARMUP] Starting warmup with tf backend on {} iterations..."
                     .format(warmup_iters))
 
                 for i in range(warmup_iters):
@@ -281,7 +281,8 @@ class Inferator():
         # results dataframe
         for image_path in image_paths:
             print("[INFERENCE] Processing frame/image {} from {}".format(frame_count, image_path))
-            init_common_metadata(bbox_results, performance_results, image_path, frame_count)
+            image_filename = image_path.split('/')[-1]
+            init_common_metadata(bbox_results, performance_results, image_filename, frame_count)
 
             # perform inference on image and get the detection results
             self.run_inference(image_path = image_path, labels=labels, 
