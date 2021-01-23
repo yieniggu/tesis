@@ -6,7 +6,8 @@ from PIL import Image
 from tensorflow.python.saved_model import tag_constants
 import argparse
 import logging
-from yolo_inference import YoloInferator
+from yolo_inferencev1 import YoloInferator
+#from yolo_inferencev2 import YoloInferator
 
 if __name__ == '__main__':
     """ !Important!
@@ -66,6 +67,8 @@ if __name__ == '__main__':
     inferator.run_inference_on_images(model_dir=args.model_dir, images_path=args.images_path, 
                                         threshold=args.threshold, iou=args.iou, warmup_iters=10,
                                         opencv=args.opencv)     
+
+
 
     print("[MAIN] Detection pipeline finished."
         + "Total time elapsed: {} seconds"
