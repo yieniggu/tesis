@@ -36,14 +36,14 @@ if __name__ == '__main__':
     parser.add_argument('--label', type=str, default='../models/detection/coco_labels.txt',
                         help='Path to labels of the model')
 
-    parser.add_argument('--input_size', type=int, default=416,
-                        help='Resizing image value')
-
     parser.add_argument('--iou', type=float, default=0.45,
                         help='Iou threshold')
 
-    parser.add_argument('--tiny', type=bool, default=False,
+    parser.add_argument('--tiny', action='store_true',
                         help='Specify if use the tiny yolo model')
+
+    parser.add_argument('--opencv', action='store_true',
+                        help='Specify if use opencv backend to load image')
 
     args = parser.parse_args()
 
@@ -57,13 +57,15 @@ if __name__ == '__main__':
     inferator.config_gpu_memory(args.gpu_mem)
 
     # load model details
-    inferator.load_model_details(args.label, args.tiny, args.input_size)
+    inferator.load_model_details(args.label, args.tiny, args.model_dir)
 
     # load a graph func from a saved model to perform inference
     #inferator.get_func_from_saved_model(args.model_dir)
 
     # perform inference on given image
-    inferator.run_inference(model_dir=args.model_dir, warmup_iters=10, image_path=args.image_path, threshold=args.threshold, iou=args.iou)     
+    inferator.run_inference(model_dir=args.model_dir, warmup_iters=10, 
+                            image_path=args.image_path, threshold=args.threshold, 
+                            iou=args.iou, opencv=args.opencv)     
 
     print("[MAIN] Detection pipeline finished."
         + "Total time elapsed: {} seconds"
