@@ -56,43 +56,66 @@ def preprocess_fn(image_path, input_size):
 	
 	return image
 
-def get_dataset_tf(image_path=None, input_size=None):
-	
+def get_dataset_tf(image_path=None, input_size=None, tensor_type='int'):
 	print("[IMGUTILS] Starting tf dataset pipeline")
 	print("[IMGUTILS] Creating dataset object from tensor_slices")
 	dataset_load_start = time.time()
+
 	# Load data with tf dataset pipeline
 	if image_path is not None:
 		dataset = tf.data.Dataset.from_tensor_slices([image_path])
+		dataset_load_total = (time.time()-dataset_load_start)*1000
+		print("[IMGUTILS] Done!, it took {}ms".format(dataset_load_total))
+		
 		# map the preprocess function
-		print("[IMGUTILS] Starting preprocessing...")
-		preprocessing_start = time.time()
 		def tf_preprocess_fn(image_path):
 			image = tf.io.read_file(image_path)
 			image = tf.image.decode_jpeg(image, channels=3)
+
 			if input_size is not None:
 				print("[IMGUTILS] Input size from get dataset tf {} - type {}"
 						.format(input_size, type(input_size)))
 				image = tf.image.resize(image, size=(input_size, input_size))
+			if tensor_type == 'int':
 				image = tf.cast(image, tf.uint8)
+			else:
+				image = tf.cast(image, tf.float32)
 			return image
+
+		print("[IMGUTILS] Starting preprocessing...")
+		preprocessing_start = time.time()
 		dataset = dataset.map(map_func=tf_preprocess_fn, num_parallel_calls=8)
+		dataset = dataset.batch(1)
+		dataset = dataset.repeat(count=1)
+		preprocessing_total = (time.time()-preprocessing_start)*1000
+		print("[IMGUTILS] Preprocessing done!, it took {}ms".format(preprocessing_total))
+
 	else: 	
 		print("[DATASET] Using syntethic data...")
+		print("[DATASET] Creating features...")
+
 		features = np.random.normal(loc=112, scale=70,
 				size=(1, input_size, input_size, 3)).astype(np.float32)
-		features = np.clip(features, 0.0, 255.0).astype(np.uint8)
-		features = tf.convert_to_tensor(value=tf.compat.v1.get_variable(
-		"features", initializer=tf.constant(features)))
-		dataset = tf.data.Dataset.from_tensor_slices([features])
-		dataset = dataset.repeat()
-	dataset_load_total = (time.time()-dataset_load_start)*1000
-	print("[IMGUTILS] Done!, it took {}ms".format(dataset_load_total))
 
-	dataset = dataset.batch(1)
-	dataset = dataset.repeat(count=1)
-	preprocessing_total = (time.time()-preprocessing_start)*1000
-	print("[IMGUTILS] Preprocessing done!, it took {}ms".format(preprocessing_total))
+		dataset_load_total = (time.time()-dataset_load_start)*1000
+		print("[IMGUTILS] Done!, it took {}ms".format(dataset_load_total))
+
+		if tensor_type == 'int':
+			features = np.clip(features, 0.0, 255.0).astype(np.float32)
+		else:
+			features = np.clip(features, 0.0, 255.0).astype(np.float32)
+
+		print("[IMGUTILS] Starting preprocessing...")
+		preprocessing_start= time.time()
+		features = tf.convert_to_tensor(value=tf.compat.v1.get_variable(
+							"features", initializer=tf.constant(features)))
+
+		print("[DATASET] Creating dataset from features...")
+		dataset = tf.data.Dataset.from_tensor_slices([features])
+		dataset = dataset.repeat(count=1)
+		preprocessing_total = (time.time()-preprocessing_start)*1000
+		print("[IMGUTILS] Preprocessing done!, it took {}ms".format(preprocessing_total))
+
 
 	return dataset, dataset_load_total, preprocessing_total
 
@@ -213,14 +236,11 @@ def draw_trackers_bounding_box(frame, label, object_tracked):
 
 	return frame
 
-def draw_bounding_box(image, bbox, label, score, save_results=False):
+def draw_bounding_box(image, bbox, label, score):
 	draw_start = time.time()
-	print(len(image.shape))
+
 	# get shape of image
-	if len(image.shape) == 4:
-		_, height, width, _ = image.shape
-	else:
-		height, width, _ = image.shape
+	height, width, _ = image.shape
 	print("[IMAGEUTILS] Image dimensions are {}x{}".format(width, height))
 
 	# Get bounding box boxdinates and draw box Interpreter can return
@@ -270,20 +290,10 @@ def draw_bounding_box(image, bbox, label, score, save_results=False):
 			(xmax, ymax), 
 			(bbox_color), bbox_thick*2)
 
-	cv2.imshow('Object detector', image)
-	if cv2.waitKey(0) & 0xFF == ord('q'):
-		cv2.destroyAllWindows()
-
 	print("[IMAGEUTILS] Draw finished. Drawing took {} ms"
 			.format((time.time()-draw_start)*1000))
 
-	if save_results:
-		saving_start = time.time()
-		print("[IMAGEUTILS] Saving results...")
-
-		cv2.imwrite('results.png', image)
-		print("[IMAGEUTILS] Results saved succesfully, took {} ms"
-		.format((time.time()-saving_start)*1000))
+	return image
 
 
 def resize_bounding_box(original_shape, scaled_shape, bbox):
@@ -420,9 +430,9 @@ def draw_bounding_boxes(image, detections, labels, threshold=0.5, bbox_results=N
 	
 	return total_drawing
 
-def draw_yolo_bounding_boxes(image, results, labels):
+def draw_yolo_bounding_boxes(image, results, labels, save=False, bbox_results=None):
 	print("[IMAGEUTILS] Starting drawing pipeline...")
-	draw_start = time.time()
+	start_drawing = time.time()
 
 	print("[IMAGEUTILS] Setting class, shape and colors...")
 	# extract info of classes and image
@@ -438,11 +448,15 @@ def draw_yolo_bounding_boxes(image, results, labels):
 	random.shuffle(colors)
 	random.seed(None)
 
+	valid_detections = 0
+
 	print("[IMAGEUTILS] Now drawing results...")
 	results_start = time.time()
 	boxes, scores, classes, num_boxes = results
 	for i in range(num_boxes[0]):
 		if int(classes[0][i]) < 0 or int(classes[0][i]) > num_classes: continue
+		
+		valid_detections += 1
 		box = boxes[0][i]
 		box[0] = int(box[0] * height)
 		box[2] = int(box[2] * height)
@@ -470,19 +484,31 @@ def draw_yolo_bounding_boxes(image, results, labels):
 
 		cv2.putText(image, label_text, (c1[0], np.float32(c1[1] - 2)), cv2.FONT_HERSHEY_SIMPLEX,
 					fontScale, (0, 0, 0), bbox_thick // 2, lineType=cv2.LINE_AA)
-	
+
+		# if results are provided append
+		# the detections results
+		if bbox_results is not None:
+			bbox_results.add_new_result(width, height, label, score, [box[1], box[3], box[0], box[2]])
+
+	if (valid_detections == 0) and (bbox_results is not None):
+		bbox_results.add_new_result(width, height, "N/D", "N/D", ["N/D", "N/D", "N/D", "N/D"])
+
+	cv2.imshow("Yolo detector" ,image)
+	if cv2.waitKey(1) == ord('q'):
+		cv2.destroyAllWindows()
+		sys.exit()
+
 	print("[IMAGEUTILS] Finished drawing results, it took {}"
 			.format((time.time()-results_start)*1000))
-
-	saving_start = time.time()
-	print("[IMAGEUTILS] Saving results...")
-	cv2.imwrite('results.png', image)
-	print("[IMAGEUTILS] Results saved succesfully, took {} ms"
-			.format((time.time()-saving_start)*1000))
 	
+	total_drawing = (time.time()-start_drawing)*1000
 	print("[IMAGEUTILS] Drawing pipeline finished in {} ms"
-			.format((time.time()-draw_start)*1000))
-	return image
+			.format(total_drawing))
+
+	if save:
+		cv2.imwrite("yolo-results.png", image)
+
+	return total_drawing
 
 def draw_tracker_info(frame, label, tracker):
 	height, width, _ = frame.shape
@@ -556,3 +582,16 @@ def create_dir(output_path):
         print("[DIR-CREATION] Directory created succesfully...") 
     else:
         print("[DIR-CREATION] Output directory already exists...")
+
+def preprocess_yolo_image(self, image, input_size):
+	print("[INFERENCE] Preprocessing image (normalization and resizing)...")
+	preprocess_start = time.time()
+
+	processed_image = cv2.resize(image, (input_size, input_size))
+	processed_image = processed_image/255
+	processed_image = processed_image[np.newaxis, ...].astype(np.float32)
+
+	print("[INFERENCE] Image preprocessed, it took {} ms"
+			.format((time.time()-preprocess_start)*1000))
+
+	return processed_image
