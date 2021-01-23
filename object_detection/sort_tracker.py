@@ -54,6 +54,7 @@ def track_objects(detections_path, frames_path, output_path, display_results=Fal
     frame_count = 1
 
     for frame_path in frame_paths:
+        frame_filename = frame_path.split('/')[-1]
         # init sort results metadata (imaage and frame count)
         sort_results.init_frame_metadata(frame_path, frame_count)
         sort_performance.init_frame_metadata(frame_path, frame_count)
@@ -201,8 +202,6 @@ def track_objects(detections_path, frames_path, output_path, display_results=Fal
                                         total_preparing, total_update, total_results,
                                         total_update_state, total_trackers)
 
-        if frame_count == 30:
-            sys.exit()
         frame_count+=1
 
     # save tracker results on given path
