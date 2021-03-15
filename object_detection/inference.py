@@ -187,7 +187,7 @@ class Inferator():
                 drawing_time = imgutils.draw_bounding_boxes(resized_image, detections, 
                                             labels, threshold, bbox_results=bbox_results)
                 
-                height, width, _ = image.shape
+                height, width, _ = resized_image.shape
                 # add new performance results to object
                 performance_results.add_new_result(width, height, total_image_loading, 
                                                 total_preprocessing, total_inference, drawing_time)
