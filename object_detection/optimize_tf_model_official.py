@@ -138,8 +138,10 @@ def get_graph_func(input_saved_model_dir,
           break
         print("[GET-GRAPH-FUNC] ({}) Yielding images - type: {} - shape: {}"
         .format(i, type(batch_images), batch_images.shape))
+        start_yielding = time.time()
         yield (batch_images,)
-        print("[GET-GRAPH-FUNC] batch images length {}".format(len(batch_images)))
+        #print("[GET-GRAPH-FUNC] batch images length {}".format(len(batch_images)))
+        print("[GET-GRAPH-FUNC] per-yielding time: {}ms".format((time.time()-start_yielding)*1000))
         print("  step %d/%d" % (i+1, num_iterations))
         i += 1
     if conversion_params.precision_mode != 'INT8':
