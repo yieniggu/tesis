@@ -271,11 +271,11 @@ class SortResults:
         last_path_of_detections_path = os.path.basename(os.path.normpath(detections_path))
         splitted_detections_path = last_path_of_detections_path.split("_")
 
-        model_name = "_".join(splitted_detections_path[0:1])
-        precision = splitted_detections_path[2]
-        threshold = splitted_detections_path[3]
-        frame_dims = splitted_detections_path[6]
-        loading_backend = splitted_detections_path[7].split(".")[0]
+        model_name = "_".join(splitted_detections_path[0:-6])
+        precision = splitted_detections_path[-6]
+        threshold = splitted_detections_path[-5]
+        frame_dims = splitted_detections_path[-2]
+        loading_backend = splitted_detections_path[-1].split(".")[0]
 
         if output_path[-1] != '/':
             output_path+= '/'
@@ -367,11 +367,11 @@ class SortPerformanceResults:
         last_path_of_detections_path = os.path.basename(os.path.normpath(detections_path))
         splitted_detections_path = last_path_of_detections_path.split("_")
 
-        model_name = "_".join(splitted_detections_path[0:2])
-        precision = splitted_detections_path[2]
-        threshold = splitted_detections_path[3]
-        frame_dims = splitted_detections_path[6]
-        loading_backend = splitted_detections_path[7].split(".")[0]
+        model_name = "_".join(splitted_detections_path[0:-6])
+        precision = splitted_detections_path[-6]
+        threshold = splitted_detections_path[-5]
+        frame_dims = splitted_detections_path[-2]
+        loading_backend = splitted_detections_path[-1].split(".")[0]
 
         if output_path[-1] != '/':
             output_path+= '/'
