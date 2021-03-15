@@ -22,17 +22,18 @@ def valid_detection(detection):
     
     return True
 
-def warmup(warmup_iters=10):
+def warmup(warmup_iters=10, display_results=False):
     print("[WARMUP] Starting visualization warmup on {} iters...".format(warmup_iters))
     for i in range(warmup_iters):
         random_frame = np.random.normal(size=(1920, 1080, 3)).astype(np.uint8)
-        imgutils.display_frame(random_frame, scaled=True, message="Tracker")
+        if display_results:
+            imgutils.display_frame(random_frame, scaled=True, message="Tracker")
     
     print("[WARMUP] Visualization warmup finished!")
 
 def track_objects(detections_path, frames_path, output_path, display_results=False, save_results=False):    
     # perform warmup to visualize results in "real time"
-    warmup(20)
+    warmup(20, display_results=display_results)
     
     # instantiate a tracker results object
     sort_results = SortResults()
@@ -217,11 +218,11 @@ def save_total_objects(total_objects, output_path, detections_path):
     last_path_of_detections_path = os.path.basename(os.path.normpath(detections_path))
     splitted_detections_path = last_path_of_detections_path.split("_")
 
-    model_name = "_".join(splitted_detections_path[0:1])
-    precision = splitted_detections_path[2]
-    threshold = splitted_detections_path[3]
-    frame_dims = splitted_detections_path[6]
-    loading_backend = splitted_detections_path[7].split(".")[0]
+    model_name = "_".join(splitted_detections_path[0:-6])
+    precision = splitted_detections_path[-6]
+    threshold = splitted_detections_path[-5]
+    frame_dims = splitted_detections_path[-2]
+    loading_backend = splitted_detections_path[-1].split(".")[0]
 
     if output_path[-1] != '/':
         output_path+= '/'
@@ -246,7 +247,7 @@ if __name__ == '__main__':
     parser.add_argument('--detections_path', type=str, default=None,
                         help='File containing detections per frame summary')
 
-    parser.add_argument('--frames_path', type=str, default='dogs.jpeg',
+    parser.add_argument('--frames_path', type=str,
                         help='Path to frames to perform tracking')
 
     parser.add_argument('--display', action='store_true',
