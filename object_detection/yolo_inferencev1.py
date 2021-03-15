@@ -116,11 +116,11 @@ class YoloInferator():
         labels = self.attributes["LABELS"]
         # get a copy of the graph func
         #graph_func = self.attributes["graph_func"]
-        if model_dir is not None:
-            saved_model_loaded = self.get_func_from_saved_model(model_dir)
-        else: 
-            saved_model_loaded = self.attributes["saved_model_loaded"]
-        
+        # Load the saved model
+        model_loaded = tf.saved_model.load(
+            model_dir, tags=[tag_constants.SERVING])
+        saved_model_loaded = model_loaded.signatures['serving_default']
+
         #warmup
         if warmup_iters > 0:
             print("[INFERENCE] Starting warmup on {} iterations..."
@@ -170,13 +170,13 @@ class YoloInferator():
                     # get input tensor and cast to image (np)
                     input_tensor = list(dataset_enum)[0][1]
                     resized_image = input_tensor.numpy()[0]
-
-                    images_data = np.asarray([resized_image]).astype(np.float32)
+                    
+                    images_data = []
+                    for i in range(1):
+                        images_data.append(resized_image)
+                    images_data = np.asarray(images_data).astype(np.float32)
                     input_tensor = tf.constant(images_data)
 
-
-                #print("[WARMUP] Input tensor: {} - dtype {}"
-                #    .format(input_tensor, input_tensor.dtype))
                 
                 # get the detections
                 print("[WARMUP] Now performing warmup inference...")
@@ -230,6 +230,7 @@ class YoloInferator():
             # opencv option
             image_loading_start = time.time()
             image = imgutils.read_image_from_cv2(image_path)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             total_image_loading = (time.time()-image_loading_start)*1000
 
             # preprocess image to work on tf
@@ -280,10 +281,11 @@ class YoloInferator():
             images_data = np.asarray(images_data).astype(np.float32)
             input_tensor = tf.constant(images_data)
 
-        print("[INFERENCE] Images data: {} - shape: {} - dtype {}"
-            .format(images_data, images_data.shape, images_data.dtype))
-        print("[INFERENCE] Input tensor: {} - shape: {} - dtype {}"
-            .format(input_tensor, input_tensor.shape, input_tensor.dtype))
+            print("[INFERENCE] Images data: {} - shape: {} - dtype {} - type {}"    
+                .format(images_data, images_data.shape, images_data.dtype, type(images_data)))
+
+            print("[INFERENCE] Input tensor: {} - shape: {} - dtype {} - type {}"
+                .format(input_tensor, input_tensor.shape, input_tensor.dtype, type(input_tensor)))
             
 
         print("[INFERENCE] Now performing inference...")
@@ -362,11 +364,9 @@ class YoloInferator():
         labels = self.attributes["LABELS"]
 
         # get a copy of the graph func
-        #graph_func = self.attributes["graph_func"]
-        if model_dir is not None:
-            saved_model_loaded = self.get_func_from_saved_model(model_dir)
-        else: 
-            saved_model_loaded = self.attributes["saved_model_loaded"]
+        saved_model_loaded = tf.saved_model.load(
+            model_dir, tags=[tag_constants.SERVING])
+        saved_model_loaded = saved_model_loaded.signatures['serving_default']
 
         #warmup
         if warmup_iters > 0:
@@ -396,6 +396,12 @@ class YoloInferator():
                     images_data = np.asarray(images_data).astype(np.float32)
                     input_tensor = tf.constant(images_data)
 
+                    print("[INFERENCE] Images data: {} - shape: {} - dtype {} - type {}"
+                        .format(images_data, images_data.shape, images_data.dtype, type(images_data)))
+
+                    print("[INFERENCE] Input tensor: {} - shape: {} - dtype {} - type {}"
+                        .format(input_tensor, input_tensor.shape, input_tensor.dtype, type(input_tensor)))
+
                 # working with tf backend for image
                 else:
                     dataset, _, _ = imgutils.get_dataset_tf(tensor_type='float', input_size=input_size)
@@ -414,6 +420,12 @@ class YoloInferator():
                         images_data.append(resized_image)
                     images_data = np.asarray(images_data).astype(np.float32)
                     input_tensor = tf.constant(images_data)
+
+                    print("[INFERENCE] Images data: {} - shape: {} - dtype {} - type {}"
+                        .format(images_data, images_data.shape, images_data.dtype, type(images_data)))
+
+                    print("[INFERENCE] Input tensor: {} - shape: {} - dtype {} - type {}"
+                        .format(input_tensor, input_tensor.shape, input_tensor.dtype, type(input_tensor)))
 
                 # get the detections
                 print("[WARMUP] Now performing warmup inference...")
@@ -509,6 +521,12 @@ class YoloInferator():
                 images_data = np.asarray(images_data).astype(np.float32)
                 input_tensor = tf.constant(images_data)
 
+                print("[INFERENCE] Images data: {} - shape: {} - dtype {} - type {}"
+                    .format(images_data, images_data.shape, images_data.dtype, type(images_data)))
+
+                print("[INFERENCE] Input tensor: {} - shape: {} - dtype {} - type {}"
+                    .format(input_tensor, input_tensor.shape, input_tensor.dtype, type(input_tensor)))
+
                 total_preprocessing = (time.time()-start_preprocessing)*1000
                 print("[INFERENCE] Preprocessing done!, it took {}ms"
                     .format(total_preprocessing))
@@ -537,13 +555,11 @@ class YoloInferator():
                 images_data = np.asarray(images_data).astype(np.float32)
                 input_tensor = tf.constant(images_data)
 
-                print("[INFERENCE] Images data: {} - shape: {} - dtype {}"
-                    .format(images_data, images_data.shape, images_data.dtype))
+                print("[INFERENCE] Images data: {} - shape: {} - dtype {} - type {}"
+                    .format(images_data, images_data.shape, images_data.dtype, type(images_data)))
 
-
-                input_tensor = tf.constant(images_data)
-                print("[INFERENCE] Input tensor: {} - shape: {} - dtype {}"
-                    .format(input_tensor, input_tensor.shape, input_tensor.dtype))
+                print("[INFERENCE] Input tensor: {} - shape: {} - dtype {} - type {}"
+                    .format(input_tensor, input_tensor.shape, input_tensor.dtype, type(input_tensor)))
                 total_local_preprocessing = (time.time()-local_preprocessing_start)*1000
 
                 total_preprocessing += total_local_preprocessing
