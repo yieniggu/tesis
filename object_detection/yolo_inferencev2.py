@@ -208,6 +208,8 @@ class YoloInferator():
         print("[INFERENCE] Preprocessing image...")
         start_preprocessing = time.time()
 
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
         # resize image to netwrk input dimensions
         resized_image = imgutils.resize_image(image, (input_size, input_size))
         resized_image = resized_image/255.
