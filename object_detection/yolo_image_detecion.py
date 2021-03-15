@@ -40,6 +40,9 @@ if __name__ == '__main__':
     parser.add_argument('--iou', type=float, default=0.45,
                         help='Iou threshold')
 
+    parser.add_argument('--warmup_iters', type=int, default=0,
+                        help='Specify a number of warmup iterations')
+
     parser.add_argument('--tiny', action='store_true',
                         help='Specify if use the tiny yolo model')
 
@@ -64,7 +67,7 @@ if __name__ == '__main__':
     #inferator.get_func_from_saved_model(args.model_dir)
 
     # perform inference on given image v1
-    inferator.run_inference(model_dir=args.model_dir, warmup_iters=0, 
+    inferator.run_inference(model_dir=args.model_dir, warmup_iters=args.warmup_iters, 
                             image_path=args.image_path, threshold=args.threshold, 
                             iou=args.iou, opencv=args.opencv)     
 

@@ -37,6 +37,9 @@ if __name__ == '__main__':
     parser.add_argument('--label', type=str, default='../models/coco_labels.txt',
                         help='Path to labels of the model')
 
+    parser.add_argument('--warmup_iters', type=int, default=0,
+                    help='Specify a number of warmup iterations')
+
     parser.add_argument('--iou', type=float, default=0.45,
                         help='Iou threshold')
 
@@ -65,8 +68,8 @@ if __name__ == '__main__':
 
     # perform inference on given image
     inferator.run_inference_on_images(model_dir=args.model_dir, images_path=args.images_path, 
-                                        threshold=args.threshold, iou=args.iou, warmup_iters=10,
-                                        opencv=args.opencv)     
+                                        threshold=args.threshold, iou=args.iou, 
+                                        warmup_iters=args.warmup_iters, opencv=args.opencv)     
 
 
 
